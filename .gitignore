@@ -1,0 +1,7 @@
+laserwall
+whisper.cpp
+recordings/*.wav
+.DS_Store
+current-utterance.wav
+current-utterance.wav.txt
+__pycache__/
