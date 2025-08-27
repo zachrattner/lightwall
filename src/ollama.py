@@ -18,6 +18,7 @@ def query_ollama(messages: list):
         "model": model,
         "messages": messages,
         "stream": False,
+        "keep_alive": "24h",
         "options": {
             "num_ctx": num_ctx,
             "num_batch": num_batch,
