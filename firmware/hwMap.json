@@ -1,0 +1,127 @@
+[
+    {
+        "boardName": "alpha",
+        "fileHandle": "/dev/ttyUSB0",
+        "hardware": [
+            {
+                "address": "B1",
+                "type": "motor"
+            },
+            {
+                "address": "D1",
+                "type": "motor"
+            },
+            {
+                "address": "F1",
+                "type": "motor"
+            },
+            {
+                "address": "B3",
+                "type": "motor"
+            },
+            {
+                "address": "D3",
+                "type": "motor"
+            }
+        ]
+    },
+    {
+        "boardName": "bravo",
+        "fileHandle": "/dev/ttyUSB1",
+        "hardware": [
+            {
+                "address": "F3",
+                "type": "motor"
+            },
+            {
+                "address": "B5",
+                "type": "motor"
+            },
+            {
+                "address": "D5",
+                "type": "motor"
+            },
+            {
+                "address": "F5",
+                "type": "motor"
+            }
+        ]
+    },
+    {
+        "boardName": "charlie",
+        "fileHandle": "/dev/ttyUSB2",
+        "hardware": [
+            {
+                "address": "A1",
+                "type": "laser"
+            },
+            {
+                "address": "A3",
+                "type": "laser"
+            },
+            {
+                "address": "A5",
+                "type": "laser"
+            },
+            {
+                "address": "B6",
+                "type": "laser"
+            },
+            {
+                "address": "C0",
+                "type": "laser"
+            }
+        ]
+    },
+    {
+        "boardName": "delta",
+        "fileHandle": "/dev/ttyUSB3",
+        "hardware": [
+            {
+                "address": "D6",
+                "type": "laser"
+            },
+            {
+                "address": "E0",
+                "type": "laser"
+            },
+            {
+                "address": "F6",
+                "type": "laser"
+            },
+            {
+                "address": "G1",
+                "type": "laser"
+            },
+            {
+                "address": "G3",
+                "type": "laser"
+            }
+        ]
+    },
+    {
+        "boardName": "echo",
+        "fileHandle": "/dev/ttyUSB4",
+        "hardware": [
+            {
+                "address": "G5",
+                "type": "laser"
+            }
+        ]
+    },
+    {
+        "boardName": "foxtrot",
+        "fileHandle": "/dev/ttyUSB5",
+        "hardware": [
+            {
+                "address": "D0",
+                "type": "fog"
+            },
+            {
+                "address": "D7",
+                "type": "distance"
+            }
+
+        ]
+    }
+]
