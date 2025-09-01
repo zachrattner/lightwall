@@ -27,6 +27,37 @@ static uint8_t s1len = 0;
 static char inbuf[160];
 static size_t inlen = 0;
 
+// Fog control output (idle LOW)
+static const uint8_t FOG_PIN = 7; // choose a free digital pin
+static volatile bool fog_active = false;
+static volatile uint32_t fog_end_ms = 0;
+
+static void start_fog(uint32_t duration_ms) {
+  noInterrupts();
+  digitalWrite(FOG_PIN, HIGH);
+  fog_active = true;
+  fog_end_ms = millis() + duration_ms;
+  interrupts();
+}
+
+static void service_fog() {
+  if (fog_active) {
+    uint32_t now = millis();
+    // handle wraparound safely
+    if ((int32_t)(now - fog_end_ms) >= 0) {
+      digitalWrite(FOG_PIN, LOW);
+      fog_active = false;
+    }
+  }
+}
+
+static void reply_ok() {
+  StaticJsonDocument<64> d;
+  d["ok"] = true;
+  serializeJson(d, Serial);
+  Serial.write('\n');
+}
+
 static void parseSerial1() {
   while (Serial1.available()) {
     char c = (char)Serial1.read();
@@ -89,6 +120,10 @@ void setup() {
   // Sensor serial. The sensor transmits ASCII R###<CR> at 9600 8N1.
   Serial1.begin(9600);
 
+  // Fog output pin setup
+  pinMode(FOG_PIN, OUTPUT);
+  digitalWrite(FOG_PIN, LOW);
+
   // Give the sensor a short time to power up; it calibrates on first cycle.
   delay(300); // see General Power-Up Instruction and first-read timing guidance. 
 }
@@ -96,6 +131,7 @@ void setup() {
 void loop() {
   // Always keep the cache fresh
   parseSerial1();
+  service_fog();
 
   // Handle one-line JSON on USB
   while (Serial.available()) {
@@ -110,11 +146,57 @@ void loop() {
 
         if (e) { reply_error("bad_json"); continue; }
 
+        // Backward compatibility: {"get":true}
         if (doc["get"] == true) {
           reply_reading();
-        } else {
-          reply_error("unknown_cmd");
+          continue;
         }
+
+        const char* hw = doc["hardware"] | (const char*)nullptr;
+        const char* cmd = doc["command"] | (const char*)nullptr;
+        JsonVariant payload = doc["payload"];
+
+        if (!hw || !cmd) { reply_error("missing_fields"); continue; }
+
+        // Handle READ commands
+        if (strcmp(cmd, "read") == 0) {
+          if (strcmp(hw, "distance") == 0) {
+            reply_reading();
+          } else if (strcmp(hw, "fog") == 0) {
+            // Return simple fog status
+            StaticJsonDocument<128> d;
+            d["ok"] = true;
+            d["hardware"] = "fog";
+            d["active"] = fog_active;
+            d["remaining_ms"] = fog_active ? (uint32_t)(fog_end_ms - millis()) : 0;
+            serializeJson(d, Serial);
+            Serial.write('\n');
+          } else {
+            reply_error("unknown_hardware");
+          }
+          continue;
+        }
+
+        // Handle ENABLE commands (only makes sense for fog)
+        if (strcmp(cmd, "enable") == 0) {
+          if (strcmp(hw, "fog") != 0) { reply_error("unsupported_cmd_for_hardware"); continue; }
+          if (payload.isNull() || !payload.containsKey("duration")) { reply_error("bad_payload"); continue; }
+          uint32_t dur = payload["duration"].as<uint32_t>();
+          if (dur == 0) { reply_error("bad_duration"); continue; }
+          start_fog(dur);
+
+          StaticJsonDocument<160> d;
+          d["ok"] = true;
+          d["hardware"] = "fog";
+          d["command"] = "enable";
+          d["duration"] = dur;
+          serializeJson(d, Serial);
+          Serial.write('\n');
+          continue;
+        }
+
+        // Unknown command
+        reply_error("unknown_cmd");
       }
     } else if (inlen + 1 < sizeof(inbuf)) {
       inbuf[inlen++] = c;
