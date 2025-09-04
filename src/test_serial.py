@@ -14,8 +14,6 @@ The Arduino sketch should answer:
   NAME -> <device name>
 """
 
-import argparse
-
 def probe_name(port: str) -> str:
     """send NAME and return it or *UNKNOWN* if empty.
     On failure, return *UNKNOWN* or *ERROR* with exception class name."""
@@ -43,9 +41,6 @@ def print_table(rows: list[list[str]]) -> None:
         print(f"{device:<{widths[0]}}  {name:<{widths[1]}}")
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="List and probe serial devices with NAME commands.")
-    args = ap.parse_args()
-
     rows = []
     for port in serial_util_list_devices():
         name = probe_name(port)
