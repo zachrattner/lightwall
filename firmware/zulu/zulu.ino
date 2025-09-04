@@ -55,8 +55,6 @@ void loop() {
               Serial.println("OK");
             }
           }
-        } else if (strcasecmp(buf, "PING") == 0) {
-          Serial.println("PONG");
         } else if (strcasecmp(buf, "NAME") == 0) {
           Serial.println(name);
         } else {
