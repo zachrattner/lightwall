@@ -23,7 +23,33 @@ current_utt = np.array([], dtype=np.float32)
 
 chat_messages = []
 
+# Adaptive RMS gate config and state (idea 5)
+ADAPTIVE_RMS_ALPHA = 0.05        # EMA smoothing factor for baseline
+ADAPTIVE_GATE_MULTIPLIER = 3.0   # dynamic gate = baseline * multiplier
+ADAPTIVE_MIN_GATE = 0.001        # absolute floor on gate
+
+rms_baseline = None              # updated during detected silence
+quiet_until_ts = 0.0             # cooldown window after TTS completes
+
+def update_rms_baseline(rms: float):
+    """Update EMA baseline with the current RMS value."""
+    global rms_baseline
+    if not np.isfinite(rms):
+        return
+    if rms_baseline is None:
+        rms_baseline = rms
+    else:
+        rms_baseline = (1.0 - ADAPTIVE_RMS_ALPHA) * rms_baseline + ADAPTIVE_RMS_ALPHA * rms
+
+
+def current_rms_gate() -> float:
+    """Return the effective RMS gate combining static and adaptive thresholds."""
+    base_gate = RMS_GATE if RMS_GATE > 0.0 else 0.0
+    dynamic = (rms_baseline or 0.0) * ADAPTIVE_GATE_MULTIPLIER
+    return max(ADAPTIVE_MIN_GATE, base_gate, dynamic)
+
 def postprocess_transcript(text: str):
+    global quiet_until_ts
     if text:
         info(f"transcript: {text}")
         try:
@@ -33,7 +59,15 @@ def postprocess_transcript(text: str):
                 if response:
                     stop_playing()
                     info(f"response: {response}")
-                    say(response, personality_cfg)
+                    try:
+                        # Speak the reply; this call is assumed to be blocking
+                        say(response, personality_cfg)
+                    finally:
+                        # After TTS ends, enter a short quiet window to recalibrate baseline
+                        from time import time as _now
+                        quiet_duration = 0.8  # seconds
+                        quiet_until_ts = _now() + quiet_duration
+                        info(f"Entering adaptive quiet window for {quiet_duration:.1f}s")
                     chat_messages.append({"role": "assistant", "content": response})
         except Exception as e:
             error(f"post-transcribe action failed: {e}")
@@ -41,7 +75,7 @@ def postprocess_transcript(text: str):
         warning("TRANSCRIPT: [empty]")
 
 def audio_callback(indata, frames, time_info, status):
-    global in_speech, current_utt
+    global in_speech, current_utt, rms_baseline, quiet_until_ts
     if status:
         info(f"Audio callback status: {status}")
 
@@ -50,14 +84,24 @@ def audio_callback(indata, frames, time_info, status):
     if audio.dtype != np.float32:
         audio = audio.astype(np.float32, copy=False)
 
-    # VAD path
+    # VAD path with adaptive RMS gate
     rms = float(np.sqrt(np.mean(audio ** 2))) if audio.size else 0.0
-    audio_tensor = torch.from_numpy((audio * 32768).astype(np.int16))
+    now_ts = time.time()
 
-    if RMS_GATE > 0.0 and rms < RMS_GATE:
+    # Determine effective gate and optionally update baseline
+    effective_gate = current_rms_gate()
+
+    # During the post-TTS quiet window, force silence and keep adapting the baseline
+    if now_ts < quiet_until_ts:
+        update_rms_baseline(rms)
+        speech_timestamps = []
+    # If energy is below the effective gate, treat as silence and adapt baseline
+    elif rms < effective_gate:
+        update_rms_baseline(rms)
         speech_timestamps = []
     else:
-        # Use padding from config
+        # Energy above gate: run VAD on this chunk
+        audio_tensor = torch.from_numpy((audio * 32768).astype(np.int16))
         from audio_constants import SPEECH_PADDING_MS
         speech_timestamps = get_speech_timestamps(
             audio_tensor,
@@ -70,6 +114,8 @@ def audio_callback(indata, frames, time_info, status):
         )
 
     speech_detected = len(speech_timestamps) > 0
+
+    #info(f"rms={rms:.6f} gate={effective_gate:.6f} speech={speech_detected}")
 
     # Accumulate during speech
     if in_speech:
