@@ -10,6 +10,9 @@ from say import say
 from logger import info, warning, error
 from whisper import transcribe
 from audio_constants import SAMPLE_RATE, BUFFER_SIZE, VAD_MIN_SPEECH_MS, VAD_THRESHOLD, VAD_MIN_SILENCE_MS, RMS_GATE
+
+# Trailing-silence tuning (Idea 1): require longer quiet to end an utterance
+# Use at least 800 ms or the configured value, whichever is larger.
 from music import start_playing, stop_playing
 
 # Load Silero VAD model
@@ -30,6 +33,10 @@ ADAPTIVE_MIN_GATE = 0.001        # absolute floor on gate
 
 rms_baseline = None              # updated during detected silence
 quiet_until_ts = 0.0             # cooldown window after TTS completes
+
+# Debounced end-of-speech: require continued silence before finalizing
+END_SILENCE_CONFIRM_SEC = 1.0
+pending_end_ts = None  # None means no pending end; otherwise holds candidate end timestamp
 
 def update_rms_baseline(rms: float):
     """Update EMA baseline with the current RMS value."""
@@ -65,7 +72,7 @@ def postprocess_transcript(text: str):
                     finally:
                         # After TTS ends, enter a short quiet window to recalibrate baseline
                         from time import time as _now
-                        quiet_duration = 0.8  # seconds
+                        quiet_duration = 0.2 # seconds
                         quiet_until_ts = _now() + quiet_duration
                         info(f"Entering adaptive quiet window for {quiet_duration:.1f}s")
                     chat_messages.append({"role": "assistant", "content": response})
@@ -75,7 +82,7 @@ def postprocess_transcript(text: str):
         warning("TRANSCRIPT: [empty]")
 
 def audio_callback(indata, frames, time_info, status):
-    global in_speech, current_utt, rms_baseline, quiet_until_ts
+    global in_speech, current_utt, rms_baseline, quiet_until_ts, pending_end_ts
     if status:
         info(f"Audio callback status: {status}")
 
@@ -117,30 +124,36 @@ def audio_callback(indata, frames, time_info, status):
 
     #info(f"rms={rms:.6f} gate={effective_gate:.6f} speech={speech_detected}")
 
-    # Accumulate during speech
-    if in_speech:
-        current_utt = np.concatenate((current_utt, audio)) if current_utt.size else audio.copy()
-
-    # Transitions: immediate start/end based on VAD
+    # Transitions: debounced end-of-speech (require sustained silence)
     if speech_detected:
         if not in_speech:
             in_speech = True
             info("speech started")
             current_utt = np.array([], dtype=np.float32)
+        # Any detected speech cancels a pending end
+        pending_end_ts = None
         # when speech is detected, accumulate the current audio chunk
         current_utt = np.concatenate((current_utt, audio)) if current_utt.size else audio.copy()
     else:
         if in_speech:
-            in_speech = False
-            info("speech ended")
-            utt = current_utt if current_utt.size else np.array([], dtype=np.float32)
-            if utt.size > 0:
-                start_playing()
-                transcript = transcribe(utt)
-                postprocess_transcript(transcript)
+            if pending_end_ts is None:
+                # First silent frame after speech: start the end confirmation timer
+                pending_end_ts = now_ts
             else:
-                warning("TRANSCRIPT: [no audio]")
-            current_utt = np.array([], dtype=np.float32)
+                # If we have stayed silent long enough, finalize the utterance
+                if (now_ts - pending_end_ts) >= END_SILENCE_CONFIRM_SEC:
+                    in_speech = False
+                    pending_end_ts = None
+                    info("speech ended")
+                    utt = current_utt if current_utt.size else np.array([], dtype=np.float32)
+                    if utt.size > 0:
+                        start_playing()
+                        transcript = transcribe(utt)
+                        postprocess_transcript(transcript)
+                    else:
+                        warning("TRANSCRIPT: [no audio]")
+                    current_utt = np.array([], dtype=np.float32)
+        # If we're already not in_speech, do nothing
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Silero VAD mic monitor')
