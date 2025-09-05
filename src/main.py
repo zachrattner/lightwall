@@ -62,9 +62,10 @@ def postprocess_transcript(text: str):
     global quiet_until_ts
     if text:
         info(f"transcript: {text}")
-        # Ignore music-only transcripts
-        if text.strip().lower() == "*music*":
-            warning("TRANSCRIPT: [ignored music marker]")
+        # Ignore placeholder/marker transcripts (e.g., music or empty markers)
+        _marker = text.strip().lower()
+        if _marker in {"*music*", "(empty)", "[empty]"}:
+            warning(f'TRANSCRIPT: [ignored placeholder "{_marker}"]')
             return
         try:
             if personality_cfg:
