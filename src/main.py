@@ -38,6 +38,9 @@ quiet_until_ts = 0.0             # cooldown window after TTS completes
 END_SILENCE_CONFIRM_SEC = 1.0
 pending_end_ts = None  # None means no pending end; otherwise holds candidate end timestamp
 
+# Ignore very short utterances (don’t transcribe or play music)
+MIN_UTTERANCE_SEC = 0.50  # 500 ms
+
 def update_rms_baseline(rms: float):
     """Update EMA baseline with the current RMS value."""
     global rms_baseline
@@ -59,6 +62,10 @@ def postprocess_transcript(text: str):
     global quiet_until_ts
     if text:
         info(f"transcript: {text}")
+        # Ignore music-only transcripts
+        if text.strip().lower() == "*music*":
+            warning("TRANSCRIPT: [ignored music marker]")
+            return
         try:
             if personality_cfg:
                 chat_messages.append({"role": "user", "content": text})
@@ -147,9 +154,13 @@ def audio_callback(indata, frames, time_info, status):
                     info("speech ended")
                     utt = current_utt if current_utt.size else np.array([], dtype=np.float32)
                     if utt.size > 0:
-                        start_playing()
-                        transcript = transcribe(utt)
-                        postprocess_transcript(transcript)
+                        utt_dur_sec = float(utt.size) / float(SAMPLE_RATE)
+                        if utt_dur_sec < MIN_UTTERANCE_SEC:
+                            warning(f"TRANSCRIPT: [ignored short utterance {utt_dur_sec*1000:.0f} ms]")
+                        else:
+                            start_playing()
+                            transcript = transcribe(utt)
+                            postprocess_transcript(transcript)
                     else:
                         warning("TRANSCRIPT: [no audio]")
                     current_utt = np.array([], dtype=np.float32)
