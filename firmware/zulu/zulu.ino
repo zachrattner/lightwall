@@ -1,76 +1,41 @@
-// Nano Every minimal serial key-value demo
-// Baud: 115200, line endings: Newline (\n)
-
-#include <Arduino.h>
-
-static const char name[8] = "BRAVO";
-
-static int32_t g_value = 12345;  // lives in RAM
+// HLK-LD1115H-24G starter reader on Arduino Nano Every
+//
+// Wiring (Nano Every ↔ HLK-LD1115H-24G):
+//   Nano Every D0 (RX)  <-- Radar TX   (radar sends data to Arduino)
+//   Nano Every D1 (TX)  --> Radar RX   (Arduino sends config commands to radar)
+//   Nano Every GND      <---> Radar GND (common ground required)
+//   Nano Every 5V       --> Radar VCC  (power supply, check your module specs;
+//                                        some modules want 3.3V logic on RX.
+//                                        If so, add a voltage divider on D1->Radar RX)
+//
+// Notes:
+// - Do NOT cross TX/RX twice: Arduino RX (D0) must go to Radar TX.
+// - The radar outputs TTL-level serial at 115200 baud.
+// - Serial (USB) is used for logging to your computer.
+// - Serial1 (D0/D1) is used to talk to the radar.
 
 void setup() {
+  // USB logging back to your computer
   Serial.begin(115200);
-  // Give USB a moment to enumerate, but do not block forever
-  unsigned long start = millis();
-  while (!Serial && (millis() - start) < 2000) { /* wait up to ~2s */ }
+  while (!Serial);  // wait for Serial Monitor to connect
 
-  Serial.println("READY");  // one-time boot message
+  // Radar connection on Serial1 (pins D0 = RX, D1 = TX)
+  Serial1.begin(115200);
+
+  Serial.println("HLK-LD1115H-24G radar demo starting...");
 }
 
 void loop() {
-  static char buf[64];
-  static size_t len = 0;
+  // Forward anything received from the radar to your computer
+  while (Serial1.available()) {
+    char c = Serial1.read();
+    Serial.write(c);
+  }
 
-  // Read bytes into a simple line buffer
-  while (Serial.available() > 0) {
-    char c = (char)Serial.read();
-
-    if (c == '\n' || c == '\r') {
-      // End of line reached. Process command if we have any chars.
-      if (len > 0) {
-        buf[len] = '\0';
-
-        // Trim trailing spaces
-        while (len > 0 && (buf[len - 1] == ' ' || buf[len - 1] == '\t')) {
-          buf[--len] = '\0';
-        }
-
-        // Process commands
-        if (strcasecmp(buf, "GET") == 0) {
-          Serial.println(g_value);
-        } else if (strncasecmp(buf, "SET", 3) == 0) {
-          // Expect: SET <int>
-          const char* p = buf + 3;
-          // Skip spaces
-          while (*p == ' ' || *p == '\t') p++;
-          if (*p == '\0') {
-            Serial.println("ERR Missing integer");
-          } else {
-            // Parse as 32-bit signed
-            char* endp = nullptr;
-            long v = strtol(p, &endp, 10);
-            if (endp == p) {
-              Serial.println("ERR Bad integer");
-            } else {
-              g_value = (int32_t)v;
-              Serial.println("OK");
-            }
-          }
-        } else if (strcasecmp(buf, "NAME") == 0) {
-          Serial.println(name);
-        } else {
-          Serial.println("ERR Unknown");
-        }
-      }
-      // Reset buffer for next line
-      len = 0;
-    } else {
-      if (len < (sizeof(buf) - 1)) {
-        buf[len++] = c;
-      } else {
-        // Overflow: reset and report
-        len = 0;
-        Serial.println("ERR Too long");
-      }
-    }
+  // Optional: forward any keystrokes from the Serial Monitor
+  // down to the radar (e.g. sending config commands like "th1=100")
+  while (Serial.available()) {
+    char c = Serial.read();
+    Serial1.write(c);
   }
 }
