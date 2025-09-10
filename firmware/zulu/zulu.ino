@@ -25,6 +25,10 @@ void setup() {
 
   // Radar connection on Serial1 (pins D0 = RX, D1 = TX)
   Serial1.begin(115200);
+
+  // Configure sensor parameters
+  Serial1.println("th1=250");
+
   Serial.println("HLK-LD1115H-24G radar demo starting...");
 }
 
