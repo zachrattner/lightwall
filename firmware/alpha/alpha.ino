@@ -1,70 +1,64 @@
-// Baud: 115200, line endings: Newline (\n)
-
 /*
- * ALPHA BOARD
- * Motor B1
- * Motor D1
- * Motor F1
- * Motor B3
- * Motor D3
- **/
+  Control a bi-polar stepper motor using the SparkFun ProDriver TC78H670FTG
+  By: Pete Lewis
+  SparkFun Electronics
+  Date: July 2nd, 2020
+  License: MIT. See license file for more information but you can
+  basically do whatever you want with this code.
 
-#include <Arduino.h>
+  This example does a custom setup (variable resolution) 
+  and turns the motor at different resolutions.
+  
+  Feel like supporting open source hardware?
+  Buy a board from SparkFun! https://www.sparkfun.com/products/16836
 
-static const char name[8] = "ALPHA";
+  Hardware Connections:
 
-#define SERIAL_BAUD 115200
+  ARDUINO --> PRODRIVER
+  D8 --> STBY
+  D7 --> EN
+  D6 --> MODE0
+  D5 --> MODE1
+  D4 --> MODE2
+  D3 --> MODE3
+  D2 --> ERR
 
-static int32_t g_value = 12345;  // lives in RAM
+*/
+
+#include "SparkFun_ProDriver_TC78H670FTG_Arduino_Library.h" //Click here to get the library: http://librarymanager/All#SparkFun_ProDriver
+PRODRIVER myProDriver; //Create instance of this object
 
 void setup() {
-  Serial.begin(SERIAL_BAUD);
+  Serial.begin(115200);
+  Serial.println("SparkFun ProDriver TC78H670FTG Example 3");
 
-  // Give USB 2s to enumerate, but do not block forever
-  unsigned long start = millis();
-  while (!Serial && (millis() - start) < 2000) { }
+  //***** Configure the ProDriver's Settings *****//
+  // Note, we must change settings BEFORE calling the .begin() function.
+  // For this example, we will try variable 1/2 step resolution.
+  // This means we can turn the motor at full step resolution or 1/2 step resolution.
+  // And we can change between these two resolutions during operation.
+  myProDriver.settings.stepResolutionMode = PRODRIVER_STEP_RESOLUTION_VARIABLE_1_2; // 1:1 <--> 1:2
 
-  Serial.println("READY");
+  // The following lines of code are other options you can try out.
+  // Comment-out the above settings declaration, and uncomment your desired setting below.
+  // myProDriver.settings.stepResolutionMode = PRODRIVER_STEP_RESOLUTION_VARIABLE_1_2; // 1:1 <--> 1:2
+  // myProDriver.settings.stepResolutionMode = PRODRIVER_STEP_RESOLUTION_VARIABLE_1_4; // 1:1 <--> 1:4
+  // myProDriver.settings.stepResolutionMode = PRODRIVER_STEP_RESOLUTION_VARIABLE_1_8; // 1:1 <--> 1:8
+  // myProDriver.settings.stepResolutionMode = PRODRIVER_STEP_RESOLUTION_VARIABLE_1_16; // 1:1 <--> 1:16
+  // myProDriver.settings.stepResolutionMode = PRODRIVER_STEP_RESOLUTION_VARIABLE_1_32; // 1:1 <--> 1:32
+  // myProDriver.settings.stepResolutionMode = PRODRIVER_STEP_RESOLUTION_VARIABLE_1_64; // 1:1 <--> 1:64
+  // myProDriver.settings.stepResolutionMode = PRODRIVER_STEP_RESOLUTION_VARIABLE_1_128; // 1:1 <--> 1:128
+
+  myProDriver.begin(); // adjust custom settings before calling this
 }
 
 void loop() {
-  static char buf[64];
-  static size_t len = 0;
-
-  // Read bytes into a simple line buffer
-  while (Serial.available() > 0) {
-    char c = (char)Serial.read();
-
-    if (c == '\n' || c == '\r') {
-      // End of line reached. Process command if we have any chars.
-      if (len > 0) {
-        buf[len] = '\0';
-
-        // Trim trailing spaces
-        while (len > 0 && (buf[len - 1] == ' ' || buf[len - 1] == '\t')) {
-          buf[--len] = '\0';
-        }
-
-        // Process commands
-        if (strcasecmp(buf, "NAME") == 0) {
-          Serial.println(name);
-        }
-        else {
-          Serial.println("ERR: Unknown cmd");
-        }
-      }
-      // Reset buffer for next line
-      len = 0;
-    }
-    else {
-      if (len < (sizeof(buf) - 1)) {
-        buf[len++] = c;
-      }
-      else {
-        // Overflow: reset and report
-        len = 0;
-        Serial.println("ERR: Overflow");
-      }
-    }
-  }
+  myProDriver.changeStepResolution(PRODRIVER_STEP_RESOLUTION_1_1); // change to step res 1:1
+  myProDriver.step(200, 0); // turn 200 steps, CW direction
+  delay(1000);
+  
+  myProDriver.changeStepResolution(PRODRIVER_STEP_RESOLUTION_1_2); // change to step res 1:2
+  myProDriver.step(200, 1); // turn 200 steps, CCW direction, 
+  //*Note* this will be half of the above step command because we are at 1:2 step resolution
+  delay(1000);
 }
