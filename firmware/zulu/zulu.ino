@@ -16,6 +16,13 @@
 
 #define STARTUP_DELAY 15000
 bool is_running = false;
+int motion_value = 0;
+int occupancy_value = 0;
+int input_pos = 0;  // current write position in input_buffer
+static void parseRadarLine(const char* line);
+
+#define INPUT_BUFFER_LEN 32
+char input_buffer[INPUT_BUFFER_LEN];
 
 void setup() {
   is_running = false;
@@ -28,6 +35,8 @@ void setup() {
 
   // Configure sensor parameters
   Serial1.println("th1=250");
+  memset(input_buffer, 0, INPUT_BUFFER_LEN);
+  input_pos = 0;
 
   Serial.println("HLK-LD1115H-24G radar demo starting...");
 }
@@ -50,11 +59,40 @@ void loop() {
   // Forward anything received from the radar to your computer
   while (Serial1.available()) {
     char c = Serial1.read();
-    // Skip NULs and other non-printables except CR/LF
-    if ((unsigned char) c == 0x00) continue;
-    if (c != '\r' && c != '\n' && (c < 0x20 || c > 0x7E)) continue;
 
-    Serial.write(c);
+    // Echo filtered characters to USB serial for visibility
+    //if (!((unsigned char)c == 0x00) && (c == '\r' || c == '\n' || (c >= 0x20 && c <= 0x7E))) {
+    //  Serial.write(c);
+    //}
+
+    // Build a line for parsing (accept printable ASCII; newline terminates)
+    if (c == '\r' || c == '\n') {
+      if (input_pos > 0) {
+        // Terminate the string
+        if (input_pos >= INPUT_BUFFER_LEN) input_pos = INPUT_BUFFER_LEN - 1;
+        input_buffer[input_pos] = '\0';
+        // Parse the completed line
+        parseRadarLine(input_buffer);
+        // Reset buffer
+        memset(input_buffer, 0, INPUT_BUFFER_LEN);
+        input_pos = 0;
+      }
+      // ignore multiple CR/LF sequences
+      continue;
+    }
+
+    // Accept only printable ASCII into the buffer
+    if (c >= 0x20 && c <= 0x7E) {
+      if (input_pos < INPUT_BUFFER_LEN - 1) {
+        input_buffer[input_pos++] = c;
+      } else {
+        // Buffer full without newline; flush and restart to avoid overflow
+        input_buffer[INPUT_BUFFER_LEN - 1] = '\0';
+        parseRadarLine(input_buffer);
+        memset(input_buffer, 0, INPUT_BUFFER_LEN);
+        input_pos = 0;
+      }
+    }
   }
 
   // Optional: forward any keystrokes from the Serial Monitor
@@ -62,5 +100,31 @@ void loop() {
   while (Serial.available()) {
     char c = Serial.read();
     Serial1.write(c);
+  }
+}
+static void parseRadarLine(const char* line) {
+  // Expected formats:
+  //   "mov, <bin> <strength>"  -> update motion_value with <strength>
+  //   "occ, <bin> <strength>"  -> update occupancy_value with <strength>
+  // Ignore the first integer (spectral bin) and capture the second integer (signal strength)
+
+  if (strncmp(line, "mov,", 4) == 0) {
+    int strength = 0;
+    if (sscanf(line, "mov, %*d %d", &strength) == 1) {
+      motion_value = strength;
+      Serial.print("motion_value=");
+      Serial.println(motion_value);
+    }
+    return;
+  }
+
+  if (strncmp(line, "occ,", 4) == 0) {
+    int strength = 0;
+    if (sscanf(line, "occ, %*d %d", &strength) == 1) {
+      occupancy_value = strength;
+      Serial.print("occupancy_value=");
+      Serial.println(occupancy_value);
+    }
+    return;
   }
 }
