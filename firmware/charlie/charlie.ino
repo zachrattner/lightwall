@@ -1,70 +1,27 @@
-// Baud: 115200, line endings: Newline (\n)
+// 20 kHz software PWM on D11 to drive TTL laser (yellow wire)
+// Fades 0→100%→0%, holding each step ~10 ms
 
-/*
- * CHARLIE BOARD
- * Laser A1
- * Laser A3
- * Laser A5
- * Laser B6
- * Laser C0
- **/
-
-#include <Arduino.h>
-
-static const char name[8] = "CHARLIE";
-
-#define SERIAL_BAUD 115200
-
-static int32_t g_value = 12345;  // lives in RAM
+const uint8_t pwmPin = 11;
+const uint32_t pwmFreq = 20000;   // 20 kHz within module’s 50 kHz limit
+const uint32_t period_us = 1000000UL / pwmFreq;  // 50 us period
 
 void setup() {
-  Serial.begin(SERIAL_BAUD);
+  pinMode(pwmPin, OUTPUT);
+}
 
-  // Give USB 2s to enumerate, but do not block forever
-  unsigned long start = millis();
-  while (!Serial && (millis() - start) < 2000) { }
-
-  Serial.println("READY");
+void runPWM(uint8_t duty /*0-255*/, uint32_t hold_ms) {
+  // Convert 0-255 to high time (us) within a 50 µs period
+  uint32_t high_us = (uint32_t)duty * period_us / 255;
+  uint32_t cycles = (hold_ms * 1000UL) / period_us;
+  for (uint32_t i = 0; i < cycles; i++) {
+    digitalWrite(pwmPin, HIGH);
+    delayMicroseconds(high_us);
+    digitalWrite(pwmPin, LOW);
+    delayMicroseconds(period_us - high_us);
+  }
 }
 
 void loop() {
-  static char buf[64];
-  static size_t len = 0;
-
-  // Read bytes into a simple line buffer
-  while (Serial.available() > 0) {
-    char c = (char)Serial.read();
-
-    if (c == '\n' || c == '\r') {
-      // End of line reached. Process command if we have any chars.
-      if (len > 0) {
-        buf[len] = '\0';
-
-        // Trim trailing spaces
-        while (len > 0 && (buf[len - 1] == ' ' || buf[len - 1] == '\t')) {
-          buf[--len] = '\0';
-        }
-
-        // Process commands
-        if (strcasecmp(buf, "NAME") == 0) {
-          Serial.println(name);
-        }
-        else {
-          Serial.println("ERR: Unknown cmd");
-        }
-      }
-      // Reset buffer for next line
-      len = 0;
-    }
-    else {
-      if (len < (sizeof(buf) - 1)) {
-        buf[len++] = c;
-      }
-      else {
-        // Overflow: reset and report
-        len = 0;
-        Serial.println("ERR: Overflow");
-      }
-    }
-  }
+  for (int v = 0; v <= 255; v++) runPWM(v, 10);
+  for (int v = 255; v >= 0; v--) runPWM(v, 10);
 }
