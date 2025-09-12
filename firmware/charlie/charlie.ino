@@ -1,109 +1,102 @@
 // Nano Every (ATmega4809)
-// Multi-channel TTL laser dimming via TCB0 ISR (software PWM)
-// - PWM carrier: 8 kHz (ISR @ 8 kHz)
-// - Resolution: 8-bit (0..255) → full PWM frame ~32 ms
-// - Brightness update (breathing): every 10 ms
-//
-// Wiring per channel: laser yellow -> one of pins in LASER_PINS[], black -> GND, red -> +5V.
-// If your laser is active-low, set ACTIVE_HIGH = false.
+// 5-channel TTL laser dimming with jitter-free 20 kHz software PWM
+// - ISR @ 20 kHz (TCB0 periodic)
+// - 8-bit PWM (full frame ~12.8 ms)
+// - Breathing: 10 ms per brightness step (0..255..0)
+// - Uses direct port writes for clean edges (no digitalWrite in ISR)
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
+#include <Arduino.h>
 
 // ---------------- Config ----------------
-static const bool    ACTIVE_HIGH   = true;   // set false if your TTL is active-low
-static const uint8_t LASER_PINS[]  = {3, 5, 6, 9, 11};   // up to 5 channels here
-static const uint8_t NUM_LASERS    = sizeof(LASER_PINS) / sizeof(LASER_PINS[0]);
+static const bool    ACTIVE_HIGH  = true;             // set false if your TTL input is active-low
+static const uint8_t LASER_PINS[] = {3, 5, 6, 9, 11}; // change as needed
+static const uint8_t NUM_LASERS   = sizeof(LASER_PINS)/sizeof(LASER_PINS[0]);
 
-// PWM carrier settings
-// We’ll run TCB0 at /1 (16 MHz). For 8 kHz: 16e6 / 8000 = 2000 counts.
-static const uint16_t TCB0_CMP     = 2000 - 1; // 8 kHz periodic interrupt
+// 20 kHz carrier: 16 MHz / 20,000 = 800 counts
+static const uint16_t TCB0_CMP = 800 - 1;
 
-// Breathing update cadence
-static const uint16_t BREATH_MS    = 10;   // hold per step
-static const int8_t   STEP_DELTA   = +1;   // increment per 10 ms tick
+// Breathing timing
+static const uint8_t  MS_PER_STEP = 10;   // hold per step
+static const int8_t   STEP_DELTA  = +1;   // increment per step
 
 // ---------------- State ----------------
-volatile uint8_t duty[8];          // per-channel duty 0..255 (use first NUM_LASERS)
-volatile int8_t  dir = +1;         // breathing direction
-volatile uint8_t pwmPhase = 0;     // 0..255 phase for software PWM
-volatile uint16_t msCounter = 0;   // 1 ms tick counter via ISR accumulation
+volatile uint8_t duty[8];                 // duty per channel 0..255 (use first NUM_LASERS)
+volatile uint8_t pwmPhase = 0;            // 0..255
+volatile uint16_t ms_accum = 0;           // derived ms counter
 
-// We derive ~1 ms from the 8 kHz ISR: 1000us / 125us = 8 ticks
-static const uint8_t TICKS_PER_MS = 8;
+// Fast GPIO caches
+volatile uint8_t* outReg[8];
+uint8_t           bitMask[8];
 
-// ---------------- Timer: TCB0 @ 8 kHz ----------------
-// Periodic Interrupt mode
-static void tcb0_init_8khz() {
-  // Set mode = Periodic Interrupt
+// ISR-time 1 ms derivation: 20 kHz -> 20 ticks per ms
+static const uint8_t TICKS_PER_MS = 20;
+
+static void tcb0_init_20khz() {
+  // Periodic interrupt mode
   TCB0.CTRLB = TCB_CNTMODE_INT_gc;
-
-  // Set period for 8 kHz
-  TCB0.CCMP = TCB0_CMP;
-
-  // Clear pending and enable interrupt
+  TCB0.CCMP  = TCB0_CMP;
   TCB0.INTFLAGS = TCB_CAPT_bm;
   TCB0.INTCTRL  = TCB_CAPT_bm;
-
-  // Start TCB0 with CLK/1 (16 MHz)
+  // CLK/1 (16 MHz)
   TCB0.CTRLA = TCB_CLKSEL_CLKDIV1_gc | TCB_ENABLE_bm;
 }
 
 ISR(TCB0_INT_vect) {
-  // Ack interrupt
   TCB0.INTFLAGS = TCB_CAPT_bm;
 
-  // --- 8-bit software PWM ---
+  // ----- 8-bit software PWM at 20 kHz -----
   uint8_t phase = pwmPhase;
-  // For each laser pin, output HIGH if phase < duty, else LOW
   for (uint8_t i = 0; i < NUM_LASERS; ++i) {
     bool on = (phase < duty[i]);
     if (!ACTIVE_HIGH) on = !on;
-    digitalWrite(LASER_PINS[i], on ? HIGH : LOW);
+    if (on)  *outReg[i] |=  bitMask[i];
+    else     *outReg[i] &= ~bitMask[i];
   }
-  pwmPhase = phase + 1;  // wraps 0..255 automatically
+  pwmPhase = phase + 1; // wraps naturally 255->0
 
-  // --- 1 ms and 10 ms scheduling (derived from 8 kHz ISR) ---
-  // 8 ISR ticks ≈ 1 ms
-  static uint8_t tick8 = 0;
-  tick8++;
-  if (tick8 >= TICKS_PER_MS) {
-    tick8 = 0;
-    msCounter++;
+  // ----- Derive 1 ms and update brightness every 10 ms -----
+  static uint8_t tick20 = 0;
+  if (++tick20 >= TICKS_PER_MS) {
+    tick20 = 0;
+    ms_accum++;
 
-    // Every BREATH_MS, update breathing duties
-    if (msCounter % BREATH_MS == 0) {
-      // advance shared level 0..255..0
+    if (ms_accum % MS_PER_STEP == 0) {
       static uint8_t level = 0;
-      static int8_t  d     = +1;
+      static int8_t  dir   = +1;
 
-      level = level + d;
-      if (level == 0 || level == 255) d = -d;
+      level = level + dir;
+      if (level == 0 || level == 255) dir = -dir;
 
-      // write same level to all channels; customize per-channel if you like
-      for (uint8_t i = 0; i < NUM_LASERS; ++i) {
-        duty[i] = level;
-      }
+      // same level to all channels (customize per-channel if desired)
+      for (uint8_t i = 0; i < NUM_LASERS; ++i) duty[i] = level;
     }
   }
 }
 
 void setup() {
-  // Prepare pins
+  // Prepare pins and cache fast GPIO pointers/masks
   for (uint8_t i = 0; i < NUM_LASERS; ++i) {
-    pinMode(LASER_PINS[i], OUTPUT);
-    // Start safely off
-    if (ACTIVE_HIGH) digitalWrite(LASER_PINS[i], LOW);
-    else             digitalWrite(LASER_PINS[i], HIGH);
+    uint8_t pin = LASER_PINS[i];
+    pinMode(pin, OUTPUT);
+
+    // Start safely OFF
+    if (ACTIVE_HIGH) digitalWrite(pin, LOW);
+    else             digitalWrite(pin, HIGH);
+
     duty[i] = 0;
+
+    // Resolve port and OUT register pointer for this Arduino pin
+    uint8_t port = digitalPinToPort(pin);
+    outReg[i]    = portOutputRegister(port);
+    bitMask[i]   = digitalPinToBitMask(pin);
   }
 
-  tcb0_init_8khz();
+  tcb0_init_20khz();
   sei();
 }
 
 void loop() {
-  // Main loop stays free for other work.
-  // If you want to print current level occasionally, you can sample it here
-  // (avoid Serial in the ISR).
+  // CPU free for other work; avoid Serial prints inside ISR.
 }
