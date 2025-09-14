@@ -1,24 +1,43 @@
 [
     {
         "boardName": "alpha",
-        "fileHandle": "/dev/ttyUSB0",
         "hardware": [
             {
                 "address": "B1",
                 "type": "motor"
-            },
+            }
+        ]
+    },
+    {
+        "boardName": "bravo",
+        "hardware": [
             {
                 "address": "D1",
                 "type": "motor"
-            },
+            }
+        ]
+    },
+    {
+        "boardName": "charlie",
+        "hardware": [
             {
                 "address": "F1",
                 "type": "motor"
-            },
+            }
+        ]
+    },
+    {
+        "boardName": "delta",
+        "hardware": [
             {
                 "address": "B3",
                 "type": "motor"
-            },
+            }
+        ]
+    },
+    {
+        "boardName": "echo",
+        "hardware": [
             {
                 "address": "D3",
                 "type": "motor"
@@ -26,21 +45,35 @@
         ]
     },
     {
-        "boardName": "bravo",
-        "fileHandle": "/dev/ttyUSB1",
+        "boardName": "foxtrot",
         "hardware": [
             {
                 "address": "F3",
                 "type": "motor"
-            },
+            }
+        ]
+    },
+    {
+        "boardName": "golf",
+        "hardware": [
             {
                 "address": "B5",
                 "type": "motor"
-            },
+            }
+        ]
+    },
+    {
+        "boardName": "hotel",
+        "hardware": [
             {
                 "address": "D5",
                 "type": "motor"
-            },
+            }
+        ]
+    },
+    {
+        "boardName": "india",
+        "hardware": [
             {
                 "address": "F5",
                 "type": "motor"
@@ -48,8 +81,7 @@
         ]
     },
     {
-        "boardName": "charlie",
-        "fileHandle": "/dev/ttyUSB2",
+        "boardName": "juliet",
         "hardware": [
             {
                 "address": "A1",
@@ -66,17 +98,16 @@
             {
                 "address": "B6",
                 "type": "laser"
-            },
-            {
-                "address": "C0",
-                "type": "laser"
             }
         ]
     },
     {
-        "boardName": "delta",
-        "fileHandle": "/dev/ttyUSB3",
+        "boardName": "kilo",
         "hardware": [
+            {
+                "address": "C0",
+                "type": "laser"
+            },
             {
                 "address": "D6",
                 "type": "laser"
@@ -88,7 +119,12 @@
             {
                 "address": "F6",
                 "type": "laser"
-            },
+            }
+        ]
+    },
+    {
+        "boardName": "lima",
+        "hardware": [
             {
                 "address": "G1",
                 "type": "laser"
@@ -96,13 +132,7 @@
             {
                 "address": "G3",
                 "type": "laser"
-            }
-        ]
-    },
-    {
-        "boardName": "echo",
-        "fileHandle": "/dev/ttyUSB4",
-        "hardware": [
+            },
             {
                 "address": "G5",
                 "type": "laser"
@@ -110,18 +140,21 @@
         ]
     },
     {
-        "boardName": "foxtrot",
-        "fileHandle": "/dev/ttyUSB5",
+        "boardName": "mike",
         "hardware": [
             {
                 "address": "D0",
                 "type": "fog"
-            },
+            }
+        ]
+    },
+    {
+        "boardName": "november",
+        "hardware": [
             {
                 "address": "D7",
-                "type": "distance"
+                "type": "radar"
             }
-
         ]
     }
 ]
