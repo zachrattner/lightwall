@@ -7,7 +7,7 @@ import re
 def query_ollama(messages: list):
     host = os.environ.get("OLLAMA_HOST", "localhost")
     port = os.environ.get("OLLAMA_PORT", "11434")
-    model = os.environ.get("BASE_MODEL", "gemma3:4b-it-qat")
+    model = os.environ.get("BASE_MODEL", "gemma3:12b")
     num_ctx = int(os.environ.get("NUM_CTX", "4096"))
     num_batch = int(os.environ.get("NUM_BATCH", "512"))
     temperature = float(os.environ.get("TEMPERATURE", "0.6"))
