@@ -14,6 +14,9 @@ static const bool    ACTIVE_HIGH  = true;             // set false if your TTL i
 static const uint8_t LASER_PINS[] = {3, 5, 6, 9, 11}; // change as needed
 static const uint8_t NUM_LASERS   = sizeof(LASER_PINS)/sizeof(LASER_PINS[0]);
 
+// Serial communication speed
+static const uint32_t SERIAL_BAUD_RATE = 115200;
+
 // 20 kHz carrier: 16 MHz / 20,000 = 800 counts
 static const uint16_t TCB0_CMP = 800 - 1;
 
@@ -76,6 +79,16 @@ ISR(TCB0_INT_vect) {
 }
 
 void setup() {
+  // begin serial
+  Serial.begin(SERIAL_BAUD_RATE)
+  
+  // short wait for host connect
+  uint32_t t0 = millis()
+  while (!Serial && (millis() - t0 < 2000)) { /* wait for host up to 2s */ }
+  
+  // return ready signal to host
+  Serial.println("READY");
+
   // Prepare pins and cache fast GPIO pointers/masks
   for (uint8_t i = 0; i < NUM_LASERS; ++i) {
     uint8_t pin = LASER_PINS[i];
