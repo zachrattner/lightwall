@@ -23,18 +23,41 @@ fi
 source ./laserwall/bin/activate
 pip install --upgrade pip
 
-if ! brew list sdl2 &>/dev/null; then
-    echo "Installing SDL2 for handling mic input"
-    brew install sdl2
-else
-    echo "SDL2 already installed, skipping install"
-fi
+if command -v brew >/dev/null 2>&1; then
+    # Use brew on macOS
+    if ! brew list sdl2 &>/dev/null; then
+        echo "Installing SDL2 for handling mic input"
+        brew install sdl2
+    else
+        echo "SDL2 already installed, skipping install"
+    fi
 
-if ! brew list ffmpeg &>/dev/null; then
-    echo "Installing ffmpeg for handling audio playback"
-    brew install ffmpeg
+    if ! brew list ffmpeg &>/dev/null; then
+        echo "Installing ffmpeg for handling audio playback"
+        brew install ffmpeg
+    else
+        echo "ffmpeg already installed, skipping install"
+    fi
+elif command -v apt-get >/dev/null 2>&1; then
+    # Use apt-get on Debian/Ubuntu
+    if ! dpkg -l | grep -q "^ii.*libsdl2-dev"; then
+        echo "Installing SDL2 for handling mic input"
+        sudo apt-get update
+        sudo apt-get install -y libsdl2-2.0-0 libsdl2-dev
+    else
+        echo "SDL2 already installed, skipping install"
+    fi
+
+    if ! dpkg -l | grep -q "^ii.*ffmpeg"; then
+        echo "Installing ffmpeg for handling audio playback"
+        sudo apt-get update
+        sudo apt-get install -y ffmpeg
+    else
+        echo "ffmpeg already installed, skipping install"
+    fi
 else
-    echo "ffmpeg already installed, skipping install"
+    echo "Error: Neither brew nor apt-get found. Please install SDL2 and ffmpeg manually."
+    exit 1
 fi
 
 if [[ -d "whisper.cpp" ]]; then
