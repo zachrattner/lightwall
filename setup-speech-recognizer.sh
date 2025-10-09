@@ -1,5 +1,17 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 set -euo pipefail
+
+
+# Priority to Zsh - re-execute in zsh if available and not already running in zsh
+if [ -z "${ZSH_VERSION:-}" ] && command -v zsh >/dev/null 2>&1; then
+  exec zsh "$0" "$@"
+elif [ -z "${BASH_VERSION:-}" ] && command -v bash >/dev/null 2>&1; then
+  exec bash "$0" "$@"
+elif [ -z "${BASH_VERSION:-}" ] && [ -z "${ZSH_VERSION:-}" ]; then
+  echo "Error: neither bash nor zsh found on this system."
+  exit 1
+fi
+
 
 source .env
 
@@ -11,18 +23,41 @@ fi
 source ./laserwall/bin/activate
 pip install --upgrade pip
 
-if ! brew list sdl2 &>/dev/null; then
-    echo "Installing SDL2 for handling mic input"
-    brew install sdl2
-else
-    echo "SDL2 already installed, skipping install"
-fi
+if command -v brew >/dev/null 2>&1; then
+    # Use brew on macOS
+    if ! brew list sdl2 &>/dev/null; then
+        echo "Installing SDL2 for handling mic input"
+        brew install sdl2
+    else
+        echo "SDL2 already installed, skipping install"
+    fi
 
-if ! brew list ffmpeg &>/dev/null; then
-    echo "Installing ffmpeg for handling audio playback"
-    brew install ffmpeg
+    if ! brew list ffmpeg &>/dev/null; then
+        echo "Installing ffmpeg for handling audio playback"
+        brew install ffmpeg
+    else
+        echo "ffmpeg already installed, skipping install"
+    fi
+elif command -v apt-get >/dev/null 2>&1; then
+    # Use apt-get on Debian/Ubuntu
+    if ! dpkg -l | grep -q "^ii.*libsdl2-dev"; then
+        echo "Installing SDL2 for handling mic input"
+        sudo apt-get update
+        sudo apt-get install -y libsdl2-2.0-0 libsdl2-dev
+    else
+        echo "SDL2 already installed, skipping install"
+    fi
+
+    if ! dpkg -l | grep -q "^ii.*ffmpeg"; then
+        echo "Installing ffmpeg for handling audio playback"
+        sudo apt-get update
+        sudo apt-get install -y ffmpeg
+    else
+        echo "ffmpeg already installed, skipping install"
+    fi
 else
-    echo "ffmpeg already installed, skipping install"
+    echo "Error: Neither brew nor apt-get found. Please install SDL2 and ffmpeg manually."
+    exit 1
 fi
 
 if [[ -d "whisper.cpp" ]]; then
