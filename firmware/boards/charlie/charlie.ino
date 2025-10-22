@@ -8,6 +8,10 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <Arduino.h>
+#include <strings.h>
+
+// board name
+static const char name[8] = "CHARLIE"
 
 // ---------------- Config ----------------
 static const bool    ACTIVE_HIGH  = false;            // Set false for active-low LED driver EN/PWM (HIGH disables, LOW enables)
@@ -27,14 +31,16 @@ static const uint8_t PWM_MAX  = (1u << PWM_BITS);     // 32
 static const uint8_t PWM_MASK = PWM_MAX - 1;          // 0x1F
 static const uint8_t MIN_DUTY5 = 1;                   // clamp tiny non-zero 8-bit duties to 1/32 so EN actually enables
 
-// Breathing timing
-static const uint8_t  MS_PER_STEP = 10;   // hold per step
-static const int8_t   STEP_DELTA  = +1;   // increment per step
-
 // ---------------- State ----------------
 volatile uint8_t duty[8];                 // duty per channel 0..255 (use first NUM_LEDS)
 volatile uint8_t pwmPhase = 0;            // 0..31 (5-bit phase)
-volatile uint16_t ms_accum = 0;           // derived ms counter
+
+// Per-channel fade state (used by ISR every 1 ms)
+volatile uint8_t  fade_start[8];        // starting brightness (0..255)
+volatile uint8_t  fade_target[8];       // final brightness  (0..255)
+volatile uint16_t fade_duration_ms[8];  // total ms (0 = immediate)
+volatile uint16_t fade_elapsed_ms[8];   // ms elapsed so far
+volatile int16_t  fade_step_q8[8];      // per-ms step in Q8.8 (signed)
 
 // Fast GPIO caches
 volatile uint8_t* outReg[8];
@@ -42,6 +48,12 @@ uint8_t           bitMask[8];
 
 // ISR-time 1 ms derivation: 20 kHz -> 20 ticks per ms
 static const uint8_t TICKS_PER_MS = 20;
+
+// non-blocking serial parser command buffer and variables
+static bool	overflow = false;
+static char	currentByte;
+static char	cmdBuf[64];
+static unit8_t	cmdLen = 0;
 
 static void tcb0_init_20khz() {
   // Periodic interrupt mode
@@ -75,19 +87,101 @@ ISR(TCB0_INT_vect) {
   static uint8_t tick20 = 0;
   if (++tick20 >= TICKS_PER_MS) {
     tick20 = 0;
-    ms_accum++;
 
-    if (ms_accum % MS_PER_STEP == 0) {
-      static uint8_t level = 0;
-      static int8_t  dir   = +1;
+    for (uint8_t i = 0; i < NUM_LEDS; ++i) {
+      uint16_t dur = fade_duration_ms[i];
+      if (dur == 0) continue;   // no active fade
 
-      level = level + dir;
-      if (level == 0 || level == 255) dir = -dir;
+      uint16_t t = fade_elapsed_ms[i] + 1;
+      fade_elapsed_ms[i] = t;
 
-      // apply same brightness to all LED channels (customize per-channel if desired)
-      for (uint8_t i = 0; i < NUM_LEDS; ++i) duty[i] = level;
+      int32_t vq8 = ((int32_t)fade_start[i] << 8) +
+                    (int32_t)fade_step_q8[i] * (int32_t)t;
+      int32_t v = vq8 >> 8;
+      if (v < 0)   v = 0;
+      if (v > 255) v = 255;
+      duty[i] = (uint8_t)v;
+
+      if (t >= dur) {
+        duty[i] = fade_target[i];
+        fade_duration_ms[i] = 0;
+      }
     }
   }
+}
+
+static inline void schedule_fade(uint8_t idx, uint8_t target, uint16_t duration_ms) {
+  if (idx >= NUM_LEDS) return;
+
+  noInterrupts();
+
+  uint8_t start = duty[idx];
+  fade_start[idx]       = start;
+  fade_target[idx]      = target;
+  fade_elapsed_ms[idx]  = 0;
+  fade_duration_ms[idx] = duration_ms;
+
+  if (duration_ms == 0) {
+    // Instant set
+    duty[idx] = target;
+    fade_step_q8[idx] = 0;
+  } else {
+    // Signed fixed-point step: ((target - start) << 8) / duration_ms
+    int16_t delta = (int16_t)target - (int16_t)start;    // -255..+255
+    fade_step_q8[idx] = (int16_t)(( (int32_t)delta << 8) / (int32_t)duration_ms);
+  }
+
+  interrupts();
+}
+
+static void executeCommand(char* command)
+{
+  // trim leading whitespace (may or may not be necessary)
+  while (*command == ' ' || *command == '\t') ++command;
+  if (!*command) return;
+
+  // tokenize
+  char* tokens = strtok(command, " \t\r\n");
+  if (!tokens) return;
+
+  // execute name if NAME
+  if (!strcasecmp(tokens, "NAME")) { Serial.println(name); return; }
+
+  // execute set if SET
+  if (!strcasecmp(tokens, "SET")) {
+    char* i = strtok(nullptr, " \t\r\n");
+    char* b = strtok(nullptr, " \t\r\n");
+    char* d = strtok(nullptr, " \t\r\n");
+
+    if (!i || !b || !d)
+    { Serial.println("ERR: bad args"); return; }
+
+    char* end = nullptr;
+
+    // gets SET args validated; clamps all args except LED index
+    long idx = strtol(i, &end, 10);
+    if (end == i || *end != '\0') { Serial.println("ERR: bad args"); return; }
+    if (idx < 0 || idx >= NUM_LEDS) { Serial.println("ERR: bad args"); return; }
+
+    long bv  = strtol(b, &end, 10);
+    if (end == b || *end != '\0') { Serial.println("ERR: bad value"); return; }
+    if (bv < 0) { bv = 0; }
+    if (bv > 255) { bv = 255; }
+
+    long dur = strtol(d, &end, 10);
+    if (end == d || *end != '\0') { Serial.println("ERR: bad args"); return; }
+    if (dur < 0) { dur = 0; }
+    if (dur > 60000) { dur = 60000; }
+
+    schedule_fade((uint8_t)idx, (uint8_t)bv, (uint16_t)dur);
+
+    Serial.print("OK ");  Serial.print((int)idx);
+    Serial.print(' ');    Serial.print((int)bv);
+    Serial.print(' ');    Serial.println((unsigned long)dur);
+
+    return;
+  }
+  Serial.println("ERR: unknown command");
 }
 
 void setup() {
@@ -124,4 +218,32 @@ void setup() {
 
 void loop() {
   // CPU free for other work; avoid Serial prints inside ISR.
+  while (Serial.available() > 0) {
+    currentByte = (char)Serial.read();
+
+    // checks for end of command string
+    if (currentByte == '\n' || currentByte == '\r') {
+      overflow = false;
+      if (cmdLen) {
+        cmdBuf[cmdLen] = '\0';
+        executeCommand(cmdBuf);
+        cmdLen = 0;
+      }
+    }
+    else {
+      if (!overflow) {
+        if (cmdLen < sizeof(cmdBuf)-1) {
+          cmdBuf[cmdLen++] = currentByte;
+        } else {
+          cmdLen = 0;
+          overflow = true;
+          Serial.println("ERR: overflow");
+        }
+      } else {
+        // fall here to bypass adding bytes to the buffer
+        // until we set next EOL byte
+        continue;
+      }
+    }
+  }
 }
