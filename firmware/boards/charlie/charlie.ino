@@ -42,6 +42,11 @@ volatile uint16_t fade_duration_ms[8];  // total ms (0 = immediate)
 volatile uint16_t fade_elapsed_ms[8];   // ms elapsed so far
 volatile int16_t  fade_step_q8[8];      // per-ms step in Q8.8 (signed)
 
+// blink state for LEDs
+volatile uint8_t  blink_active[NUM_LEDS];
+volatile uint8_t  blink_original[NUM_LEDS];
+volatile uint16_t blink_timer_ms[NUM_LEDS];
+
 // Fast GPIO caches
 volatile uint8_t* outReg[8];
 uint8_t           bitMask[8];
@@ -107,6 +112,14 @@ ISR(TCB0_INT_vect) {
         fade_duration_ms[i] = 0;
       }
     }
+
+    for (uint8_t i = 0; i < NUM_LEDS; ++i) {
+      if (blink_active[i]) {
+        if (--blink_timer_ms[i] == 0) {
+          duty[i] = blink_original[i];
+        }
+      }
+    }
   }
 }
 
@@ -130,6 +143,24 @@ static inline void schedule_fade(uint8_t idx, uint8_t target, uint16_t duration_
     int16_t delta = (int16_t)target - (int16_t)start;    // -255..+255
     fade_step_q8[idx] = (int16_t)(( (int32_t)delta << 8) / (int32_t)duration_ms);
   }
+
+  interrupts();
+}
+
+static inline void blink_LED(uint8_t idx) {
+  if (idx >= NUM_LEDS) return;
+
+  noInterrupts();
+
+  if (duty[idx] > 0) {
+    blink_original[idx] = duty[idx]
+    duty[idx] = 0;
+  } else {
+    blink_original[idx] = 0;
+    duty[idx] = 255;
+  }
+  blink_timer_ms[idx] = 1000;	// duration in ms; currently fixed
+  blink_active = 1;
 
   interrupts();
 }
@@ -178,6 +209,26 @@ static void executeCommand(char* command)
     Serial.print("OK ");  Serial.print((int)idx);
     Serial.print(' ');    Serial.print((int)bv);
     Serial.print(' ');    Serial.println((unsigned long)dur);
+
+    return;
+  }
+
+  if (!strcasecmp(tokens, "BLINK")) {
+    char* i = strtok(nullptr, " \t\r\n");
+
+    if (!i)
+    { Serial.println("ERR: bad args"); return; }
+
+    char* end = nullptr;
+
+    // gets SET args validated; clamps all args except LED index
+    long idx = strtol(i, &end, 10);
+    if (end == i || *end != '\0') { Serial.println("ERR: bad args"); return; }
+    if (idx < 0 || idx >= NUM_LEDS) { Serial.println("ERR: bad args"); return; }
+
+    blink_LED((uint8_t)idx);
+
+    Serial.print("OK ");  Serial.println((int)idx);
 
     return;
   }
