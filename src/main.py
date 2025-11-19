@@ -1,3 +1,6 @@
+# Add this near other imports
+from brain_manager import get_mock_distance, get_personality_cfg
+
 import sounddevice as sd
 import numpy as np
 import torch
@@ -10,6 +13,9 @@ from say import say
 from logger import info, warning, error
 from whisper import transcribe
 from audio_constants import SAMPLE_RATE, BUFFER_SIZE, VAD_MIN_SPEECH_MS, VAD_THRESHOLD, VAD_MIN_SILENCE_MS, RMS_GATE
+
+
+
 
 # Trailing-silence tuning (Idea 1): require longer quiet to end an utterance
 # Use at least 800 ms or the configured value, whichever is larger.
@@ -59,7 +65,7 @@ def current_rms_gate() -> float:
     return max(ADAPTIVE_MIN_GATE, base_gate, dynamic)
 
 def postprocess_transcript(text: str):
-    global quiet_until_ts
+    global quiet_until_ts, chat_messages
     if text:
         info(f"transcript: {text}")
         # Ignore placeholder/marker transcripts (e.g., music or empty markers)
@@ -68,22 +74,62 @@ def postprocess_transcript(text: str):
             warning(f'TRANSCRIPT: [ignored placeholder "{_marker}"]')
             return
         try:
-            if personality_cfg:
-                chat_messages.append({"role": "user", "content": text})
-                response = query_ollama(chat_messages)
-                if response:
-                    stop_playing()
-                    info(f"response: {response}")
-                    try:
-                        # Speak the reply; this call is assumed to be blocking
-                        say(response, personality_cfg)
-                    finally:
-                        # After TTS ends, enter a short quiet window to recalibrate baseline
-                        from time import time as _now
-                        quiet_duration = 0.2 # seconds
-                        quiet_until_ts = _now() + quiet_duration
-                        info(f"Entering adaptive quiet window for {quiet_duration:.1f}s")
-                    chat_messages.append({"role": "assistant", "content": response})
+            # --- START DYNAMIC BRAIN LOGIC ---
+            # 1. Get the current (simulated) distance from the user
+            # In the future, this will come from the Radar hardware
+            current_dist = get_mock_distance()
+            
+            # 2. Load the specific personality JSON based on that distance
+            # (e.g., if close -> sassy.json, if far -> poetic.json)
+            current_cfg = get_personality_cfg(current_dist)
+            info(f"[BRAIN] Radar: {current_dist}m -> Mode: {current_cfg.get('name', 'unknown')}")
+
+            # 3. Update the System Prompt in the chat history
+            # We replace the old system prompt (index 0) with the new mood
+            new_system_prompt = current_cfg.get("systemPrompt", "")
+            
+            if len(chat_messages) > 0 and chat_messages[0].get("role") == "system":
+                # Update existing system prompt
+                chat_messages[0]["content"] = new_system_prompt
+            else:
+                # Create new system prompt if missing
+                chat_messages.insert(0, {"role": "system", "content": new_system_prompt})
+
+            # --- END DYNAMIC BRAIN LOGIC ---
+
+            # 4. Add user text and Query Ollama
+            chat_messages.append({"role": "user", "content": text})
+            response = query_ollama(chat_messages)
+            
+            if response:
+                stop_playing()
+                
+                # --- NEW HARDWARE CONTROL LOGIC ---
+                from hardware_bridge import extract_hardware_commands, send_light_command
+                
+                # 1. Extract the command (e.g., "RED") and clean the text
+                spoken_text, light_cmd = extract_hardware_commands(response)
+                
+                # 2. Execute the hardware command
+                if light_cmd:
+                    send_light_command(light_cmd)
+                
+                # 3. Log the clean text
+                info(f"response (spoken): {spoken_text}")
+                
+                try:
+                    # Speak ONLY the clean text (don't say the command)
+                    say(spoken_text, current_cfg)
+                finally:
+                    # After TTS ends, enter a short quiet window to recalibrate baseline
+                    from time import time as _now
+                    quiet_duration = 0.2 # seconds
+                    quiet_until_ts = _now() + quiet_duration
+                    info(f"Entering adaptive quiet window for {quiet_duration:.1f}s")
+                
+                # Add AI response to history so it remembers the conversation
+                chat_messages.append({"role": "assistant", "content": response})
+                
         except Exception as e:
             error(f"post-transcribe action failed: {e}")
     else:

@@ -1,5 +1,5 @@
 silero-vad==5.1.2
-torch==2.5.0
+torch
 sounddevice>=0.5.2
 numpy>=1.23.0
 pyserial>=3.5.0
