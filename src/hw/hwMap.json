@@ -1,0 +1,97 @@
+[
+    {
+        "board_name": "ALPHA",
+        "port": null,
+        "type": "motor",
+        "address": "B1"
+    },
+    {
+        "board_name": "BRAVO",
+        "port": null,
+        "type": "motor",
+        "address": "C1"
+    },
+    {
+        "board_name": "CHARLIE",
+        "port": null,
+        "type": "motor",
+        "address": "D1"
+    },
+    {
+        "board_name": "DELTA",
+        "port": null,
+        "type": "motor",
+        "address": "E1"
+    },
+    {
+        "board_name": "ECHO",
+        "port": null,
+        "type": "light",
+        "mapping": {"B0": 0, "C0": 1, "A2": 2, "A3": 3, "A1": 4}
+    },
+    {
+        "board_name": "FOXTROT",
+        "port": null,
+        "type": "light",
+        "mapping": {"F1": 0, "B4": 1, "F2": 2, "D0": 3, "F3": 4}
+    },
+    {
+        "board_name": "GOLF",
+        "port": null,
+        "type": "light",
+        "mapping": {"E0": 0, "C4": 1, "D4": 2, "E4": 3}
+    },
+    {
+        "board_name": "HOTEL",
+        "port": null,
+        "type": "motor",
+        "address": "B2"
+    },
+    {
+        "board_name": "INDIA",
+        "port": null,
+        "type": "motor",
+        "address": "C2"
+    },
+    {
+        "board_name": "JULIET",
+        "port": null,
+        "type": "motor",
+        "address": "D2"
+    },
+    {
+        "board_name": "KILO",
+        "port": null,
+        "type": "motor",
+        "address": "E2"
+    },
+    {
+        "board_name": "LIMA",
+        "port": null,
+        "type": "motor",
+        "address": "B3"
+    },
+    {
+        "board_name": "MIKE",
+        "port": null,
+        "type": "motor",
+        "address": "C3"
+    },
+    {
+        "board_name": "NOVEMBER",
+        "port": null,
+        "type": "motor",
+        "address": "D3"
+    },
+    {
+        "board_name": "OSCAR",
+        "port": null,
+        "type": "motor",
+        "address": "E3"
+    },
+    {
+        "board_name": "PAPA",
+        "port": null,
+        "type": "radar"
+    }
+]
